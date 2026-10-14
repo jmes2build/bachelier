@@ -7,13 +7,21 @@
 
 namespace bachelier {
 
-void OptionSpec::validate() const {
-    if (!(spot > 0.0)) throw std::invalid_argument("spot must be > 0");
-    if (!(strike > 0.0)) throw std::invalid_argument("strike must be > 0");
+void OptionSpec::validate_normal() const {
+    if (!std::isfinite(spot)) throw std::invalid_argument("spot must be finite");
+    if (!std::isfinite(strike)) throw std::invalid_argument("strike must be finite");
     if (time_to_expiry < 0.0) throw std::invalid_argument("time_to_expiry must be >= 0");
     if (volatility < 0.0) throw std::invalid_argument("volatility must be >= 0");
     if (!std::isfinite(rate)) throw std::invalid_argument("rate must be finite");
     if (!std::isfinite(dividend_yield)) throw std::invalid_argument("dividend_yield must be finite");
+}
+
+void OptionSpec::validate() const {
+    validate_normal();
+    // Lognormal models additionally require strict positivity: the model is
+    // built on log(S/K), which is undefined otherwise.
+    if (!(spot > 0.0)) throw std::invalid_argument("spot must be > 0");
+    if (!(strike > 0.0)) throw std::invalid_argument("strike must be > 0");
 }
 
 namespace black_scholes {

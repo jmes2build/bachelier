@@ -121,10 +121,12 @@ Greeks greeks(const OptionSpec& spec, Exercise exercise, int steps) {
     g.vega = bump([](OptionSpec& s, double h) { s.volatility += h; }, 0.01);
     g.rho = bump([](OptionSpec& s, double h) { s.rate += h; }, 1e-4);
 
-    if (spec.time_to_expiry > 2e-3) {
-        OptionSpec shorter = spec;
-        shorter.time_to_expiry -= 1e-3;
-        g.theta = (price(shorter, exercise, steps) - lat.value) / 1e-3;
+    // theta is -dV/dT. Central, like vega and rho above - the previous
+    // one-sided difference was only first-order accurate while everything
+    // else here was second-order.
+    constexpr double theta_h = 1e-3;
+    if (spec.time_to_expiry > 2.0 * theta_h) {
+        g.theta = -bump([](OptionSpec& s, double h) { s.time_to_expiry += h; }, theta_h);
     }
     return g;
 }

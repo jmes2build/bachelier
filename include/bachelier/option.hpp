@@ -22,8 +22,14 @@ struct OptionSpec {
     double dividend_yield{};  // q  - continuous dividend yield
     OptionType type{OptionType::Call};
 
-    /// Throws std::invalid_argument if the inputs cannot be priced.
+    /// Throws std::invalid_argument if the inputs cannot be priced under a
+    /// lognormal model, which requires a strictly positive spot and strike.
     void validate() const;
+
+    /// Validation for the normal (Bachelier) model, which permits a
+    /// non-positive spot and strike - that is the whole reason to reach for
+    /// it. Everything else is checked as in validate().
+    void validate_normal() const;
 };
 
 /// First- and second-order sensitivities.

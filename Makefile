@@ -5,7 +5,7 @@ BUILD    := build
 OBJ      := $(BUILD)/obj
 BIN      := $(BUILD)/bin
 
-LIB_SRC  := src/black_scholes.cpp src/implied_vol.cpp src/binomial.cpp
+LIB_SRC  := src/black_scholes.cpp src/implied_vol.cpp src/binomial.cpp src/normal_model.cpp
 LIB_OBJ  := $(LIB_SRC:%.cpp=$(OBJ)/%.o)
 ALL_OBJ  := $(LIB_OBJ) $(OBJ)/src/main.o $(OBJ)/tests/tests.o
 

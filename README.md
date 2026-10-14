@@ -8,8 +8,8 @@ No external dependencies — just a compiler and `make`.
 Named for [Louis Bachelier](https://en.wikipedia.org/wiki/Louis_Bachelier), whose
 1900 thesis *Théorie de la spéculation* gave the first mathematical treatment of
 option pricing — five years before Einstein's paper on Brownian motion, and
-seventy before Black, Scholes and Merton. This library implements the lognormal
-Black-Scholes-Merton model rather than Bachelier's own arithmetic one.
+seventy before Black, Scholes and Merton. The library implements both his
+arithmetic model and the lognormal Black-Scholes-Merton one that replaced it.
 
 ```
 $ bachelier price -s 100 -k 100 -t 1 -r 0.05 -v 0.2
@@ -31,6 +31,7 @@ $ bachelier price -s 100 -k 100 -t 1 -r 0.05 -v 0.2
 - **Analytic Greeks** — delta, gamma, vega, theta, rho.
 - **Implied volatility** by Newton-Raphson with a bracketed bisection fallback.
 - **Cox-Ross-Rubinstein binomial lattice**, including American exercise and the early-exercise premium.
+- **The Bachelier (normal) model**, which prices a negative underlying or strike — the case Black-Scholes cannot express at all.
 
 ## Build
 
@@ -77,6 +78,43 @@ $ bachelier tree -s 90 -k 100 -t 1 -r 0.05 -v 0.2 --put --american --steps 1000
   early-exercise premium 1.278271
 ```
 
+## Using it as a library
+
+```cmake
+find_package(bachelier 0.2 REQUIRED)
+target_link_libraries(your_target PRIVATE bachelier::bachelier)
+```
+
+`cmake --install` lays down the headers, the static library and a package config,
+so `find_package` works from any prefix. Pulling the project in with
+`add_subdirectory` or `FetchContent` builds only the library — the CLI, the tests
+and the install rules switch themselves off when it is not the top-level project.
+
+## Why two models
+
+Black-Scholes assumes the underlying moves proportionally, so it is built on
+`log(S/K)` and cannot represent a price at or below zero. That assumption broke
+when rates went negative, and it never held for spread options, where the
+underlying is a difference between two prices and is negative roughly half the
+time.
+
+The Bachelier model assumes absolute moves instead. Its volatility is quoted in
+price units per √year rather than as a percentage, and near the money the two
+are related by `σ_normal ≈ σ_lognormal · S`.
+
+```
+$ bachelier normal -s -15 -k -10 -t 1 -r 0.05 -v 8
+  price          1.048904
+  delta          0.235414
+
+$ bachelier price  -s -15 -k -10 -t 1 -r 0.05 -v 8
+error: spot must be > 0
+```
+
+The type system enforces the distinction: `OptionSpec::validate()` requires a
+positive spot and strike, while `validate_normal()` only requires them to be
+finite.
+
 ## Model
 
 With `S` spot, `K` strike, `T` years to expiry, `r` the risk-free rate,
@@ -100,7 +138,7 @@ check at each node for American options.
 
 ## Testing
 
-`make test` runs 346 checks. Most of them verify properties that must hold by
+`make test` runs 539 checks. Most of them verify properties that must hold by
 construction rather than comparing against hard-coded numbers:
 
 - **Put-call parity** — `C − P = S·e^(−qT) − K·e^(−rT)` across 240 combinations
@@ -114,6 +152,9 @@ construction rather than comparing against hard-coded numbers:
   (Merton's result).
 - **Implied volatility round-trips** across strikes and volatility levels, and
   returns no solution for prices that violate the no-arbitrage bounds.
+- **Normal-model parity** — `C − P = e^(−rT)·(F − K)` across 180 combinations
+  including negative spots and strikes, and its analytic Greeks are checked
+  against finite differences of its own price function.
 
 ### A note on the implied-vol solver
 

@@ -2,6 +2,7 @@
 
 #include <charconv>
 #include <cstdio>
+#include <cmath>
 #include <cstring>
 #include <map>
 #include <optional>
@@ -11,6 +12,7 @@
 #include "bachelier/binomial.hpp"
 #include "bachelier/black_scholes.hpp"
 #include "bachelier/implied_vol.hpp"
+#include "bachelier/normal_model.hpp"
 
 namespace {
 
@@ -21,6 +23,7 @@ void usage() {
 
 USAGE
   bachelier price   [options]            Black-Scholes price and Greeks
+  bachelier normal  [options]            Bachelier (normal) price and Greeks
   bachelier tree    [options] [--steps N] [--american]
                                       Binomial lattice price and Greeks
   bachelier iv      [options] --price P  Solve for implied volatility
@@ -31,6 +34,7 @@ OPTIONS
   -t, --time        Years to expiry            (required)
   -r, --rate        Risk-free rate, decimal    (default 0.0)
   -v, --vol         Volatility, decimal        (required except for `iv`)
+                    For `normal`, an absolute volatility in price units
   -q, --dividend    Dividend yield, decimal    (default 0.0)
       --put         Price a put                (default is a call)
       --steps N     Lattice steps              (default 512)
@@ -40,7 +44,8 @@ OPTIONS
 EXAMPLES
   bachelier price -s 100 -k 100 -t 1 -r 0.05 -v 0.2
   bachelier tree  -s 100 -k 95 -t 0.5 -r 0.03 -v 0.35 --put --american
-  bachelier iv    -s 100 -k 100 -t 1 -r 0.05 --price 10.4506)");
+  bachelier iv    -s 100 -k 100 -t 1 -r 0.05 --price 10.4506
+  bachelier normal -s -15 -k -10 -t 1 -r 0.05 -v 8      (negative underlying))");
 }
 
 std::optional<double> to_double(std::string_view sv) {
@@ -136,6 +141,20 @@ int cmd_price(const Args& a) {
     return 0;
 }
 
+int cmd_normal(const Args& a) {
+    if (!a.have_vol) {
+        std::fputs("error: --vol is required for `normal`\n", stderr);
+        return 2;
+    }
+    print_spec(a.spec);
+    std::printf("  (normal model - volatility is absolute, in price units)\n");
+    std::printf("\n  price      %12.6f\n", normal_model::price(a.spec));
+    std::printf("  forward    %12.6f\n\n",
+                a.spec.spot * std::exp((a.spec.rate - a.spec.dividend_yield) * a.spec.time_to_expiry));
+    print_greeks(normal_model::greeks(a.spec));
+    return 0;
+}
+
 int cmd_tree(const Args& a) {
     if (!a.have_vol) {
         std::fputs("error: --vol is required for `tree`\n", stderr);
@@ -203,12 +222,16 @@ int main(int argc, char** argv) {
 
     try {
         if (cmd == "price") return cmd_price(*args);
+        if (cmd == "normal") return cmd_normal(*args);
         if (cmd == "tree") return cmd_tree(*args);
         if (cmd == "iv") return cmd_iv(*args);
         std::fprintf(stderr, "error: unknown command '%s'\n\n", argv[1]);
         usage();
         return 2;
     } catch (const std::exception& e) {
+        // stdout is block-buffered and stderr is not, so without this flush a
+        // partially-printed result appears after the error that aborted it.
+        std::fflush(stdout);
         std::fprintf(stderr, "error: %s\n", e.what());
         return 1;
     }

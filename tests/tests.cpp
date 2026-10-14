@@ -13,6 +13,7 @@
 #include "bachelier/binomial.hpp"
 #include "bachelier/black_scholes.hpp"
 #include "bachelier/implied_vol.hpp"
+#include "bachelier/normal_model.hpp"
 
 namespace {
 
@@ -227,6 +228,102 @@ void test_edge_cases() {
     check(threw, "negative spot is rejected");
 }
 
+
+void test_normal_model_parity() {
+    std::printf("Bachelier model: put-call parity\n");
+    // C - P = e^(-rT)·(F - K), the normal-model analogue of the lognormal
+    // parity relation, and it must hold for negative strikes too.
+    for (double spot : {-20.0, -0.5, 0.0, 25.0, 100.0})
+        for (double strike : {-30.0, 0.0, 40.0, 100.0})
+            for (double vol : {1.0, 12.0, 60.0})
+                for (double t : {0.1, 1.0, 4.0}) {
+                    auto s = base_spec();
+                    s.spot = spot;
+                    s.strike = strike;
+                    s.volatility = vol;  // absolute, in price units
+                    s.time_to_expiry = t;
+                    const double fwd = spot * std::exp((s.rate - s.dividend_yield) * t);
+                    const double want = std::exp(-s.rate * t) * (fwd - strike);
+                    near(bachelier::normal_model::parity_residual(s), want, 1e-9,
+                         "normal parity S=" + std::to_string(spot) + " K=" + std::to_string(strike));
+                }
+}
+
+void test_normal_model_handles_negatives() {
+    std::printf("Bachelier model: prices a negative underlying\n");
+    auto s = base_spec();
+    s.spot = -15.0;
+    s.strike = -10.0;
+    s.volatility = 8.0;
+    // Black-Scholes cannot express this at all.
+    bool bs_threw = false;
+    try {
+        bachelier::black_scholes::price(s);
+    } catch (const std::invalid_argument&) {
+        bs_threw = true;
+    }
+    check(bs_threw, "Black-Scholes rejects a negative spot");
+
+    const double p = bachelier::normal_model::price(s);
+    check(std::isfinite(p) && p > 0.0, "normal model prices it, and the option has positive value");
+}
+
+void test_normal_model_greeks() {
+    std::printf("Bachelier model: Greeks vs finite differences\n");
+    for (auto type : {bachelier::OptionType::Call, bachelier::OptionType::Put}) {
+        auto s = base_spec();
+        s.type = type;
+        s.spot = 95.0;
+        s.strike = 100.0;
+        s.volatility = 18.0;
+        s.dividend_yield = 0.02;
+        const auto g = bachelier::normal_model::greeks(s);
+        const std::string tag = " (" + bachelier::to_string(type) + ")";
+
+        const auto bumped = [&](auto mutate, double h) {
+            auto up = s, down = s;
+            mutate(up, h);
+            mutate(down, -h);
+            return (bachelier::normal_model::price(up) - bachelier::normal_model::price(down)) / (2.0 * h);
+        };
+
+        near(g.delta, bumped([](bachelier::OptionSpec& o, double h) { o.spot += h; }, 1e-4), 1e-6, "delta" + tag);
+        near(g.vega, bumped([](bachelier::OptionSpec& o, double h) { o.volatility += h; }, 1e-4), 1e-5, "vega" + tag);
+        near(g.rho, bumped([](bachelier::OptionSpec& o, double h) { o.rate += h; }, 1e-6), 1e-3, "rho" + tag);
+
+        auto up = s, down = s;
+        up.spot += 1e-2;
+        down.spot -= 1e-2;
+        const double fd_gamma = (bachelier::normal_model::price(up) - 2.0 * bachelier::normal_model::price(s) +
+                                 bachelier::normal_model::price(down)) /
+                                (1e-2 * 1e-2);
+        near(g.gamma, fd_gamma, 1e-5, "gamma" + tag);
+
+        auto shorter = s;
+        shorter.time_to_expiry -= 1e-6;
+        const double fd_theta = (bachelier::normal_model::price(shorter) - bachelier::normal_model::price(s)) / 1e-6;
+        near(g.theta, fd_theta, 1e-2, "theta" + tag);
+    }
+}
+
+void test_normal_vs_lognormal_atm() {
+    std::printf("Bachelier and Black-Scholes agree at the money\n");
+    // At the money the two models are related by sigma_normal ~ sigma_ln * S.
+    // They are different models, so this is a sanity bound, not an identity.
+    auto ln = base_spec();
+    ln.spot = 100.0;
+    ln.strike = 100.0;
+    ln.volatility = 0.20;
+    ln.rate = 0.0;  // remove the drift so only the diffusion differs
+
+    auto nm = ln;
+    nm.volatility = 0.20 * 100.0;
+
+    const double a = bachelier::black_scholes::price(ln);
+    const double b = bachelier::normal_model::price(nm);
+    check(std::abs(a - b) / a < 0.01, "ATM prices agree to within 1%");
+}
+
 }  // namespace
 
 int main() {
@@ -240,6 +337,10 @@ int main() {
     test_implied_vol_roundtrip();
     test_implied_vol_rejects_arbitrage();
     test_edge_cases();
+    test_normal_model_parity();
+    test_normal_model_handles_negatives();
+    test_normal_model_greeks();
+    test_normal_vs_lognormal_atm();
 
     std::printf("\n%d checks, %d failures\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
