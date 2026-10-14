@@ -9,7 +9,9 @@ LIB_SRC  := src/black_scholes.cpp src/implied_vol.cpp src/binomial.cpp src/norma
 LIB_OBJ  := $(LIB_SRC:%.cpp=$(OBJ)/%.o)
 ALL_OBJ  := $(LIB_OBJ) $(OBJ)/src/main.o $(OBJ)/tests/tests.o
 
-.PHONY: all test clean run
+SAN_FLAGS := -std=c++20 -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -Iinclude
+
+.PHONY: all test clean run sanitize
 all: $(BIN)/bachelier
 
 # -MMD -MP emits a .d file per object listing the headers it included, so a
@@ -32,6 +34,13 @@ test: $(BIN)/bachelier_tests
 
 run: $(BIN)/bachelier
 	@./$(BIN)/bachelier price -s 100 -k 100 -t 1 -r 0.05 -v 0.2
+
+# Built from $(LIB_SRC) so adding a source file cannot leave the sanitizer
+# build behind - CI calls this target rather than repeating the file list.
+sanitize:
+	@mkdir -p $(BIN)
+	$(CXX) $(SAN_FLAGS) $(LIB_SRC) tests/tests.cpp -o $(BIN)/bachelier_sanitized
+	@./$(BIN)/bachelier_sanitized
 
 clean:
 	@rm -rf $(BUILD)

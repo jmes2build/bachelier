@@ -50,20 +50,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The test suite is pure computation, so the sanitizers mostly guard the
-      # lattice's index arithmetic and the CLI's argument handling.
-      - name: Build with sanitizers
-        run: |
-          g++ -std=c++20 -O1 -g -fsanitize=address,undefined \
-              -fno-omit-frame-pointer -Iinclude \
-              src/black_scholes.cpp src/implied_vol.cpp src/binomial.cpp \
-              tests/tests.cpp -o bachelier_sanitized
-
-      - name: Run
+      # Driven by the Makefile's `sanitize` target so the source list lives in
+      # exactly one place. A hardcoded list here silently went stale once.
+      - name: Build and run with sanitizers
         env:
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
           ASAN_OPTIONS: detect_leaks=1
-        run: ./bachelier_sanitized
+        run: make sanitize
 
   warnings:
     name: warnings as errors
